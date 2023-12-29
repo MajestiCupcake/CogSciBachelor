@@ -1,0 +1,325 @@
+---
+title: "beh"
+output: html_document
+date: "2023-11-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd('.')
+library(tidyverse,ggplot2)
+install.packages("esquisse")
+install.packages("cowplot")
+```
+
+```{r}
+#get time
+start <- df %>% 
+  group_by(assigned.id) %>% 
+  slice(1)
+end <- df %>% 
+  group_by(assigned.id) %>% 
+  slice_tail(n=1)
+
+calculate_time_difference <- function(start_time_str, finish_time_str) {
+  # Parse input strings
+  start_time <- strptime(start_time_str, "%H_%M_%S")
+  finish_time <- strptime(finish_time_str, "%H_%M_%S")
+
+  # Optionally, format the result back into HH_MM_SS
+ time_difference_minutes <- as.numeric(difftime(finish_time, start_time, units = "mins"))  
+  return(time_difference_minutes)
+}
+
+time <- data.frame(dur=rep(0,41))
+for (line in seq(1,nrow(start))){
+  time$dur[line] <- calculate_time_difference(start$time[line],end$time[line])
+}
+```
+
+#load
+```{r}
+df <- read.csv("BEHAVIOURAL_DATA.csv")
+#Index and factorise
+df$assigned.id <- as.factor(df$assigned.id)#levels 
+df$assigned.id  <- as.numeric(df$assigned.id)#assigning the level by overwriting the id.
+df$assigned.id  <- as.factor(df$assigned.id)
+write.csv(df,"BEHAVIOURAL_DATA_started.csv")
+
+test <- df %>% 
+  filter(train.test=="Test")
+```
+
+# descripe
+```{r}
+mean(df$age)
+min(df$age)
+max(df$age)
+sd(df$age)
+
+gen <- xtabs(~gender,df)
+print(paste0(gen[[1]]/nrow(df)," percentage female"))
+
+xtabs(~group,df)
+```
+
+
+
+# combine files
+```{r}
+# Get a list of all CSV files in the folder
+
+csv_files <- list.files(path = "Data", pattern = ".csv", full.names = TRUE)
+
+# Create an empty dataframe to store the combined data
+combined_df <- data.frame()
+
+# Loop through each CSV file and append it to the combined dataframe
+for (i in seq(length(csv_files))) {
+  file_name <- paste0(csv_files[i])
+  print(file_name)
+  df <- read.csv2(file_name, header = TRUE, sep = ",")
+  combined_df <- rbind(combined_df, df)
+}
+
+# Print the combined dataframe
+head(combined_df)
+
+```
+##start cleaning
+```{r}
+combined_df$assigned.id[combined_df$assigned.id == "111002"] <- "11102"
+df <- subset(combined_df,assigned.id != "aoi_maker" )
+df$group <- ifelse(df$group == FALSE, "F", df$group)
+df <- df %>% 
+  mutate(language=toupper(language))
+df$language[df$language == "DAMISH"] <- "DANISH"
+df$language[df$language == "DANSK"] <- "DANISH"
+df <- df %>% 
+  mutate(language=str_to_title(language)) %>% 
+  mutate(train.test=str_to_title(train.test)) %>% 
+  mutate(species=str_to_title(species))
+df$action[df$action == "m"] <- "Moving"
+df$action[df$action == "s"] <- "Standing"
+df$action[df$action == "l"] <- "Laying"
+
+```
+
+##save current df
+```{r}
+write_csv(df,"BEHAVIOURAL_DATA.csv")
+```
+
+
+# describe
+```{r}
+# Assuming your dataframe is named df
+ind_summary <- df %>%
+  group_by(assigned.id,task) %>%
+  summarise(
+    age = mean(age),
+    count = n(),
+    language= first(language),
+    mean_rt=mean(reaction_time),
+    s = sum(answer=="s"),
+    c = sum(answer=="c"),
+    m = sum(answer=="m"),
+    l = sum(answer=="l"),
+    time_exceeded = sum(answer=="timelimit exceeded")
+  )
+
+
+```
+```{r}
+# Assuming your dataframe is named df
+group_sum <- df %>%
+  group_by(group) %>%
+  summarise(
+    mean_age = mean(age),
+    sd_age = sd(age),
+    male = sum(gender=="Male")/n(),
+    female = sum(gender=="Female")/n(),
+    other = sum(gender =="Other"),
+    count = n(),
+    language= unique(language),
+    mean_rt=mean(reaction_time),
+    sd_rt = sd(reaction_time),
+    time_exceeded = sum(answer=="timelimit exceeded")
+  )
+
+# Print the summary dataframe
+print(group_sum)
+```
+
+## language distribution
+```{r}
+lan <- xtabs(~language,test)
+lan %>%
+  as.data.frame() %>% 
+    arrange(desc(Freq))
+
+unique_lines <- test %>%
+  distinct(assigned.id, .keep_all = TRUE) %>% 
+  mutate(colour=NA)
+
+language_colors <- c( 
+                      "Bulgarian"= "#6E0955",
+                      "Catalan"= "darkmagenta",
+                      "Croatian"= "darkorchid",
+                      "Czech"= "blueviolet",
+                      "Danish"= "#009BBB",
+                      "English"= "aquamarine",
+                      "German"= "cyan3",
+                      "Greek"= "blue",
+                      "Hungarian"= "cornflowerblue",
+                      "Norwegian"= "cadetblue",
+                      "Polish"= "#7E5738",
+                      "Portuguese"= "darkkhaki",
+                      "Romanian"= "#D4A281",
+                      "Russian"= "bisque",
+                      "Serbian"= "aliceblue",
+                      "Slovak"= "darkgoldenrod1",
+                      "Spanish"= "brown"
+                      )
+
+xtabs(~language+group,unique_lines)
+
+
+unique_lines$language <- as.factor(unique_lines$language)
+
+# Create a summary dataframe
+summary_data <- unique_lines %>%
+  group_by(group, language) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Display the summary dataframe
+summary_data
+
+# Basic piechart
+
+lang <- ggplot(summary_data, aes(x="", y=count, fill=language)) +
+  geom_bar(stat="identity", width=1, color="white") +
+      scale_fill_manual(values = language_colors) +
+  coord_polar("y", start=0) +
+  facet_wrap(~group)+
+  labs(title="Language distribution",fill="Language")+
+  theme_void()+ # remove background, grid, numeric labels
+    theme(text=element_text(family="Cambria"))
+
+ggsave("lang_dis.png")
+
+```
+
+
+```{r}
+ggplot(test) +
+  aes(x = answer, fill = task) +
+  geom_bar() +
+  scale_fill_hue(direction = 1) +
+  theme_minimal() +
+  facet_wrap(vars(group))+
+  theme(text=element_text(family="Cambria"))
+```
+
+```{r}
+install.packages('extrafont')
+library(extrafont)
+font_import()
+loadfonts(device = "win")
+```
+
+
+# heatmaps
+```{r}
+d <- data.frame(
+    x = c(1, 2, 2, 3, 4, 4), #x-coordinates for all points
+    y = c(1, 1, 2, 2, 2, 3), #y-coordinates 
+    t = c('a', 'a', 'a', 'b', 'b', 'b'), #indication which aoi the coordinate belongs to
+    alpha = rep(1:2, each = 3)) #color
+
+ggplot(d, aes(x, y, group = t, alpha = alpha)) +
+  geom_polygon() +
+  scale_alpha_continuous(range = c(0.4, 0.8), guide = F)
+```
+
+# cool plots
+```{r}
+library(ggplot2)
+df1 <- df %>% 
+  filter(train.test=="Test") %>% 
+  filter(task=="style")
+task_colors <- c( 
+                      "Aesthetic"= "#6E0955",
+                      "Movement"= "#009BBB",
+                      "Species"= "#7E5738"
+                      )
+df1$task <- gsub("style", "Aesthetic", df1$task)
+df1$task <- gsub("act", "Movement", df1$task)
+df1$task <- gsub("recog", "Species", df1$task)
+df1$answer[df1$task=="Movement"&df1$answer=="l"] <- "Laying"
+df1$answer[df1$task=="Movement"&df1$answer=="s"] <- "Standing"
+df1$answer[df1$task=="Movement"&df1$answer=="m"] <- "Moving"
+df1$answer[df1$task=="Species"&df1$answer=="l"] <- "Ibex"
+df1$answer[df1$task=="Species"&df1$answer=="s"] <- "Hind"
+df1$answer[df1$task=="Species"&df1$answer=="m"] <- "Bison"
+df1$answer[df1$task=="Species"&df1$answer=="c"] <- "Horse"
+df1$answer[df1$task=="Aesthetic"&df1$answer=="c"] <- "Neutral"
+df1$answer[df1$task=="Aesthetic"&df1$answer=="s"] <- "Not Beautiful"
+df1$answer[df1$task=="Aesthetic"&df1$answer=="m"] <- "Beautiful"
+df1$answer[df1$task=="Aesthetic"&df1$answer=="l"] <- "Very Beautiful"
+
+ggplot(se1, aes(x="", y=per, fill=AOI)) +
+  geom_boxplot() +
+      scale_fill_manual(values = AOI_colors) +
+  facet_wrap(~Task)+
+  labs(title="AOI distribution",fill="AOI",x="Task",y="Percentage")+
+    theme(text=element_text(family="Cambria"))
+ggsave("AOI_first_hit_distribution.png")
+
+df1$answer <- factor(df1$answer, levels=c('Not Beautiful', 'Neutral', 'Beautiful',"Very Beautiful","timelimit exceeded"))
+st <- ggplot(df1) +
+ aes(x = answer, fill = task) +
+ geom_bar() +
+ scale_fill_manual(values=task_colors)+
+ theme_minimal() +
+ labs(title="Answer distribution",x=NULL,y=NULL)+
+ theme(text=element_text(family="Cambria"),legend.position = "none")
+mv <- ggplot(df1 %>% filter(task=="Movement")) +
+ aes(x = answer, fill = task) +
+ geom_bar() +
+ scale_fill_manual(values=task_colors)+
+ theme_minimal() +
+ labs(title=NULL,y="Count",x=NULL)+
+ theme(text=element_text(family="Cambria"),legend.position = "none")
+sp<- ggplot(df1 %>% filter(task=="Species")) +
+ aes(x = answer, fill = task) +
+ geom_bar() +
+ scale_fill_manual(values=task_colors)+
+ theme_minimal() +
+ labs(title=NULL,fill=NULL,x="Answer",y=NULL)+
+ theme(text=element_text(family="Cambria"),legend.position = "none")
+ggplot(df1) +
+  geom_bar()+
+   scale_fill_manual(values=task_colors)+
+  aes(x=answer, fill=task)+
+  theme_minimal() +
+ labs(title=NULL,fill="Task",x=NULL,y=NULL)+
+ theme(text=element_text(family="Cambria"),legend.position = "right")+
+   guides(fill = guide_legend(title = "Task"))
+
+gridExtra::grid.arrange(st,mv,sp)
+ggsave("answer.png")
+
+ggplot(se, aes(x=per, fill=AOI)) +
+  geom_bar() +
+      scale_fill_manual(values = AOI_colors) +
+  facet_wrap(~Task)+
+  labs(title="AOI distribution",fill="AOI",x="Task",y="Percentage")+
+    theme(text=element_text(family="Cambria"))
+ggsave("AOI_first_hit_distribution.png")
+
+```
+
+
+

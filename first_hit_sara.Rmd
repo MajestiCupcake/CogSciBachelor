@@ -1,0 +1,1015 @@
+---
+title: "first_hit"
+author: "SKK"
+date: "2023-12-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#load packages
+```{r}
+install.packages("pacman")
+pacman::p_load(tidyverse, rlang, tidymodels, gridExtra, brms, cmdstanr, loo)
+install.packages("naivebayes")
+library(naivebayes)
+
+setwd('.')
+```
+
+# load data
+```{r}
+fh_df <- read.csv("FIRST_VISIT.csv")
+fh_df <- fh_df %>% 
+  rename(First_hit=First_visit) %>% 
+  rename(Trial=Trial_index) %>% 
+  rename(Participant=ID)
+
+fh_df$Task <- as.factor(fh_df$Task)#levels 
+fh_df$Task  <- as.numeric(fh_df$Task)#assigning the level by overwriting the id.
+fh_df$Task  <- as.factor(fh_df$Task)
+
+fh_df$AOI <- as.factor(fh_df$AOI)#levels 
+fh_df$AOI <- as.numeric(fh_df$AOI)#assigning the level by overwriting the id.
+fh_df$AOI  <- as.factor(fh_df$AOI)
+
+
+#classificaion problem
+first <- fh_df %>% 
+  filter(First_hit==1)
+first <- subset(first,select=c("Participant","Task","AOI"))
+#softmax
+```
+
+# define models
+```{r}
+model <- bf(AOI ~ Task) 
+```
+
+# get priors
+```{r}
+get_prior(
+  model,
+ first,
+ family = categorical(link = "logit")
+ )
+```
+
+```{r}
+priors <- c(
+  prior(normal(0, 1), class = "b", dpar = "mu2"),
+  prior(normal(0, 1), class = "b", dpar = "mu3")
+)
+```
+
+# Run model with priors
+```{r warning=FALSE}
+m_prior <-
+  brm(
+    model,
+    data = first,
+    prior = priors,
+    family = categorical(link = "logit"),
+    sample_prior="only",
+    backend = "cmdstanr",
+    file = "model_prior",
+    warmup = 1000,
+    iter = 4000,
+    chains = 2,
+    cores = 4,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+
+```{r warning=FALSE}
+m_po <-
+  brm(
+    model,
+    data = first,
+    prior = priors,
+    family = categorical(link = "logit"),
+    backend = "cmdstanr",
+    file = "m_pos",
+    warmup = 1000,
+    iter = 4000,
+    chains = 2,
+    cores = 4,
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 20
+    )
+  )
+```
+```{r}
+pop <- pp_check(m_po, ndraws = 100) + labs(title = "Posterior distribution") + xlim(-0.5,1.5)
+pop
+```
+
+
+### Checking on the priors
+```{r}
+
+prp_m4 <- pp_check(fh_m4_prior, ndraws = 100) + labs(title = "Model 4 - prior") + xlim(-0.5, 1.5)
+prp_m4
+
+
+ggsave("prior_first_hit.jpg", prp_m4)
+
+```
+
+# Posterior
+
+
+
+```{r}
+variables(m_po) #check which names for the pp-update plots
+ ```
+
+
+### Prior Posterior Update Checks for model 4
+```{r}
+draw_m4 <- as_draws_df(fh_m4_pos)
+
+#Plot the prior-posterior update plot for b:
+pp4_int <- ggplot(draw_m4) +
+  geom_density(aes(prior_Intercept), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Intercept), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Intercept') +
+  labs(title="Model 4 - Intercept") +
+  theme_bw()
+
+#Plot the prior-posterior update plot for the Task (b):
+pp_m4_task <- ggplot(draw_m4) +
+  geom_density(aes(prior_b_Task2), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(b_Task2), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('Recognition') +
+  labs(title="Model 4 - Recognition") +
+  theme_bw()
+  
+#Plot the prior-posterior update plot for the AOI (b):
+pp_m4_aoilegs <- ggplot(draw_m4) +
+  geom_density(aes(`prior_b_AOIlegs`), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(`b_AOIlegs`), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  labs(title="Model 1 - AOI torso") +
+  theme_bw()
+
+#Plot the prior-posterior update plot for the AOI (b):
+pp_m4_aoitorso <- ggplot(draw_m4) +
+  geom_density(aes(`prior_b_AOItorso`), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(`b_AOItorso`), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  labs(title="Model 1 - AOI torso") +
+  theme_bw()
+
+#Plot the prior-posterior update plot for the interaction of the torso AOI and the Task:
+pp_m4_taskaoi_torso <- ggplot(draw_m4) +
+  geom_density(aes(`prior_b_Task:AOItorso`), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(`b_Task:AOItorso`), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  labs(title="Model 1 - interaction torso aoi and task") +
+  theme_bw()
+
+#Plot the prior-posterior update plot for the interaction of legs AOI and the task:
+pp_m4_taskaoi_legs <- ggplot(draw_m4) +
+  geom_density(aes(`prior_b_Task:AOIlegs`), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(`b_Task:AOIlegs`), fill="#FC4E07", color="black",alpha=0.6) + 
+  xlab('b') +
+  labs(title="Model 1 - interaction legs aoi and task") +
+  theme_bw()
+
+
+
+#Plot the prior-posterior update plot for the correlation between varying intercepts and slopes:
+pp_4_cor <- ggplot(draw_m4) +
+  geom_density(aes(prior_cor_Participant), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(cor_Participant__Task__AOIhead), fill="#FC4E07", color="black",alpha=0.6) + 
+  geom_density(aes(cor_Participant__Task__AOItorso), fill="red", color="black",alpha=0.6) + 
+  geom_density(aes(cor_Participant__Task__AOIlegs), fill="blue", color="black",alpha=0.6) + 
+  geom_density(aes(cor_Participant__AOIhead__AOIlegs), fill="green", color="black",alpha=0.6) + 
+  geom_density(aes(cor_Participant__AOIhead__AOItorso), fill="yellow", color="black",alpha=0.6) +
+  geom_density(aes(cor_Participant__AOIlegs__AOItorso), fill="purple", color="black",alpha=0.6) +
+  xlab('cor') +
+  labs(title="Model 1 - correlation between varying intercepts and slopes") +
+  theme_bw()
+
+
+pp_4_sd_pi <- ggplot(draw_m4) +
+  geom_density(aes(prior_sd_Participant__Intercept), fill="#FC4E07", color="black",alpha=0.3) +
+  geom_density(aes(sd_Participant__Intercept), fill="#228B22", color="black",alpha=0.4) + 
+  xlab('sd') +
+  labs(title="Model 4 - Participant intercept sd") +
+  xlim(-0.5, 1) +
+  theme_bw()
+
+pp_4_sd_paoi <- ggplot(draw_m4) +
+  geom_density(aes(prior_sd_Participant__AOIlegs), fill="aquamarine", color="black",alpha=0.3) +
+  geom_density(aes(prior_sd_Participant__AOItorso), fill="steelblue4", color="black",alpha=0.3) +
+  geom_density(aes(sd_Participant__AOItorso), fill="steelblue", color="black",alpha=0.6) +
+  geom_density(aes(sd_Participant__AOIlegs), fill="aquamarine4", color="black",alpha=0.6) +
+    xlab('sd') +
+  labs(title="Model 4 - Participant intercept sd") +
+  xlim(-0.5, 1) +
+  theme_bw()
+  
+pp_4_sd_ptaaoi <- ggplot(draw_m4) +
+  geom_density(aes(`prior_sd_Participant__Task:AOIlegs`), fill="brown4", color="black",alpha=0.3) +
+  geom_density(aes(`prior_sd_Participant__Task:AOItorso`), fill="grey", color="black",alpha=0.3) +
+  geom_density(aes(`sd_Participant__Task:AOItorso`), fill="grey3", color="black",alpha=0.3) +
+  geom_density(aes(`sd_Participant__Task:AOIlegs`), fill="brown3", color="black",alpha=0.3) +
+    xlab('sd') +
+  labs(title="Model 4 - Participant intercept sd") +
+  xlim(-0.5, 1) +
+  theme_bw()
+
+pp_4_sd_pta <- ggplot(draw_m4) +
+  geom_density(aes(prior_sd_Participant__Task), fill="aquamarine1", color="black",alpha=0.3) +
+  geom_density(aes(sd_Participant__Task), fill="aquamarine4", color="black",alpha=0.3) +
+    xlab('sd') +
+  labs(title="Model 4 - Participant intercept sd") +
+  xlim(-0.5, 1) +
+  theme_bw()
+  
+  
+pp_4_sd_ptri <- ggplot(draw_m4) +
+  geom_density(aes(prior_sd_Trial), fill="grey", color="black",alpha=0.3) +
+  geom_density(aes(sd_Trial__Intercept), fill="grey4", color="black",alpha=0.3) +
+    xlab('sd') +
+  labs(title="Model 4 - Participant intercept sd") +
+  xlim(-0.5, 1) +
+  theme_bw()
+```
+
+```{r}
+summary(m_po)
+#to look at r_hat, bulk and tail values
+```
+### Hypothesis testing:
+```{r}
+#general hypothesis
+hypothesis(m_po, "mu2_Task3<mu2_Task2") 
+#individual subjects
+hypothesis(MLU_3, "Visit<0.03", group = "ID", scope="coef")
+```
+
+## Look at distributions, for example at credible intervals etc.
+
+# Softmax
+## load data
+```{r}
+
+```
+## load packages
+```{r}
+library(rethinking)
+```
+## try with real data
+```{r}
+# Assuming df is your data frame
+first$Task <- as.factor(first$Task)
+first$AOI <- as.factor(first$AOI)
+
+first$Task <- as.integer(first$Task)
+first$AOI <- as.integer(first$AOI)
+
+# Check the levels and make sure they start from 1
+levels(as.factor(first$AOI))
+
+```
+```{r}
+codem <- "
+data {
+  int N;         // Number of observations
+  int K;         // Number of categories (aois)
+  int aoi[N];    // Outcome
+  int task[N];   // Task variable
+}
+parameters {
+  matrix[N, K-1] a;    // Intercepts for each observation and category
+  vector<lower=0>[N] b; // Association of task with first visit aoi for each observation
+}
+model {
+  matrix[N, K] s;
+
+  for (i in 1:N) {
+    a[i] ~ normal(0, 1);
+  }
+  
+  b ~ normal(0, 0.5);
+
+ for (i in 1:N) {
+    s[i, 1:K-1] = a[i,];
+    s[i, K] = 0; // pivot
+    aoi[i] ~ categorical(softmax(s[i, 1:K]'));
+  }
+} 
+"
+```
+
+```{r}
+dat_list <- list(
+  N = nrow(first),
+  K = length(unique(first$AOI)),
+  aoi = first$AOI,
+  task = first$Task
+)
+
+# Fit the model
+m11.13 <- stan(model_code = codem, data = dat_list, chains = 4)
+
+precis( m11.13 , 2 )
+
+```
+
+
+
+
+## try out model
+```{r}
+second <- first
+second$AOI <- as.factor(second$AOI)
+second$AOI <- as.numeric(second$AOI)
+second$AOI <- as.factor(second$AOI)
+
+second$Task <- as.factor(second$Task)
+second$Task<- as.numeric(second$Task)
+second$Task<- as.factor(second$Task)
+
+third <- third %>%
+  group_by(Participant) %>% 
+  mutate(n=row_number()) %>% 
+  mutate(Task=as.integer(Task)) %>% 
+  mutate(Index=Task*1000+n)
+
+fry <- xtabs(~AOI,second)
+total_hits <- sum(fry) 
+
+third <- third %>% 
+  group_by(AOI) %>% 
+  mutate(score=n()/total_hits) #change of each aoi with no restriction to task or any thing else
+
+```
+
+```{r}
+N=nrow(second)
+task=as.vector(as.integer(second$Index))
+
+fry <- xtabs(~AOI,second)
+total_hits <- sum(fry) 
+score <- third$score #change of each aoi with no restriction to task or any thing else
+p <- softmax(score)
+```
+
+```{r}
+codem <- "
+data{
+  int N; //number of participants
+  int K; // number of aoi's
+  int aoi[N]; //outcome
+  vector[K] task;
+}
+parameters{
+  vector[K-1] a; //Intercepts for each participant, task, and category
+  real<lower=0> b; //Association of task with first visit aoi for each participant
+}
+
+model{
+  vector[N, K] p;
+  vector[N, K] s;
+  a ~ normal(0,1); //change??
+  b ~ normal(0,0.5); //change??
+  for (i in 1:N){
+    for (j in 1:K){
+    s[i,j]=a[i,j]+b[i]*task[i]
+    }
+    s[i,K] = 0; // pivot
+    p[i,] = softmax( s[i,] );
+
+  }
+
+  aoi ~ categorical( p );
+}
+
+"
+```
+
+
+```{r}
+dat_list <- list( N= nrow(second),
+                  K=3 ,
+                  aoi = as.vector(as.integer(second$AOI)),
+                  task=as.vector(as.integer(second$Task))
+)
+m11.13 <- stan( model_code=codem , data=dat_list , chains=4 )
+precis( m11.13 , 2 )
+
+```
+
+```{r}
+post <- extract.samples(m11.13)
+# set up logit scores
+s1 <- with( post , a[,1] + b*task[1] )
+s2_orig <- with( post , a[,2] + b*task[2] )
+s2_new <- with( post , a[,2] + b*task[2]*2 )
+# compute probabilities for original and counterfactual
+p_orig <- sapply( 1:length(post$b) , function(i)
+softmax( c(s1[i],s2_orig[i],0) ) )
+p_new <- sapply( 1:length(post$b) , function(i)
+softmax( c(s1[i],s2_new[i],0) ) )
+# summarize
+p_diff <- p_new[2,] - p_orig[2,]
+precis( p_diff )
+
+```
+
+
+# fix dwell proportion
+```{r}
+df <- read.csv("DWELL_PROPORTION.csv")
+#summerize aoi duration per trial
+try <- df %>% 
+  group_by(ID,Task,Trial_index,AOI_hit) %>% 
+  mutate(AOI_duration=sum(Fixation.Duration))
+
+df_filtered <- try %>%
+  group_by(ID, Task, Trial_index, AOI_hit) %>%
+  summarise(
+    Dwell_TRIAL = first(Dwell_TRIAL),  # Keep the first value of dwell_trial
+    AOI_duration = first(AOI_duration)  # Keep the first value of aoi_duration
+  ) %>%
+  distinct(AOI_hit, .keep_all = TRUE)
+
+df_filtered <- df_filtered %>% 
+  mutate(Dwell_pro=AOI_duration/Dwell_TRIAL)
+
+#transform
+df_filtered <- df_filtered %>% 
+  mutate(t_aoi_pro=((Dwell_pro*(Dwell_TRIAL-1)+0.5)/Dwell_TRIAL))
+```
+
+# fix ID in dataframes
+```{r}
+df <- read.csv("fixations_MAGNIFISO.csv")
+df$ID <- as.factor(df$ID)
+df$ID <- as.numeric(df$ID)
+df$ID <- as.factor(df$ID)
+write.csv(df,"fixations_MAGNIFISO.csv")
+```
+
+```{r}
+df <- df %>% 
+  rename(AOI=AOI_hit)
+result <- df %>%
+  group_by(ID, Task, Trial_index) %>%
+  mutate(first_row = row_number() == 1,
+         change_in_AOI = AOI != lag(AOI, default = first(AOI))) %>%
+  filter(first_row | change_in_AOI) %>%
+  select(-first_row, -change_in_AOI)
+
+# Print or view the result
+print(result)
+
+res <- result %>% 
+  group_by(ID, Task, Trial_index) %>%
+  filter(row_number() == 2) %>%
+  ungroup()
+
+second <- subset(res,select=c("ID","Task","Trial_index","AOI"))
+second$AOI <- gsub("\\+", "", second$AOI)
+second$ID <- as.factor(second$ID)
+second$AOI <- as.factor(second$AOI)
+second$Task <- as.factor(second$Task)
+```
+
+
+# Third try with soft max
+```{r}
+# Load necessary packages
+library(rethinking)
+
+# Define the Stan model
+codem <- "
+data {
+  int N;         // Number of observations
+  int K;         // Number of categories (AOIs)
+  int aoi[N];    // Outcome
+  int task[N];   // Task variable
+}
+parameters {
+  matrix[N, K-1] a;    // Intercepts for each observation and category
+  vector<lower=0>[N] b; // Association of task with the first visit AOI for each observation
+}
+model {
+  matrix[N, K] p;
+  matrix[N, K] s;
+
+  for (i in 1:N) {
+    a[i] ~ normal(0, 1);
+  }
+  
+  b ~ normal(0, 0.5);
+
+  for (i in 1:N) {
+    for (j in 1:K) {
+      s[i, j] = a[i, j] + b[i] * task[i];
+    }
+    s[i, K] = 0; // pivot
+    aoi[i] ~ categorical(softmax(s[i, 1:K]'));
+  }
+}
+"
+
+# Specify the number of participants, categories, AOIs, and tasks
+N <- 12739
+K <- 3
+
+# Create dummy data for illustration
+set.seed(42)
+aoi <- first$AOI
+task <- first$Task
+
+# Create data list
+dat_list <- list(N = N, K = K, aoi = aoi, task = task)
+
+
+# Compile the Stan model
+model <- stan(model_code = codem,data=dat_list,chains=4, iter=1000)
+```
+
+```{r}
+
+# Fit the model to the data
+fit <- sampling(model)
+
+```
+
+Step 3: Extract Coefficients
+```{r}
+# Extract coefficients from the posterior samples
+posterior_samples <- extract.samples(fit)
+
+# Examine coefficients associated with the Task variable
+coef_b <- colMeans(posterior_samples$b)
+print(coef_b)
+
+```
+
+Here, coef_b contains the mean estimates for each coefficient associated with the Task variable.
+
+Step 4: Interpretation
+Interpret the coefficients in coef_b. Positive coefficients suggest an increase in the log-odds of choosing the first visit AOI as the Task variable increases, while negative coefficients suggest a decrease.
+
+Step 5: Predictions
+```{r}
+# Create a data frame with all combinations of AOI and Task
+new_data <- expand.grid(Task = 1:3, AOI = 1:K)
+
+# Predict probabilities for each combination
+predicted_probs <- predict(fit, newdata = new_data, draws = posterior_samples)
+print(predicted_probs)
+```
+
+This will give you the predicted probabilities for each combination of AOI and Task based on the model.
+
+Step 6: Visualization or Comparison
+Visualize the predicted probabilities or compare them to draw conclusions about the influence of Task on AOI.
+
+Please adjust the steps based on your specific data and research question. Let me know if you have any questions or if you'd like further clarification on any step!
+
+# Multinomial logistic regression
+```{r}
+# Assuming df is your data frame
+first$Task <- as.factor(first$Task)
+first$AOI <- as.factor(first$AOI)
+
+first$Task <- as.integer(first$Task)
+first$AOI <- as.integer(first$AOI)
+
+first$Task <- as.factor(first$Task)
+first$AOI <- as.factor(first$AOI)
+
+
+# Check the levels and make sure they start from 1
+levels(first$AOI)
+levels(first$Task)
+
+```
+```{r}
+library(caret)
+index <- createDataPartition(first$AOI, p =.7, list=FALSE)
+train <- first[index,]
+test <- first[-index,]
+```
+```{r}
+train$AOI <- relevel(train$AOI,ref="1")
+```
+
+```{r}
+require(nnet)
+multi <- multinom(AOI~Task, data=train)
+summary(multi)
+```
+```{r}
+exp(coef(multi))
+```
+```{r}
+head(round(fitted(multi),3)) #head only shows the 6 first
+```
+```{r}
+train$AOIpred <- predict(multi,newdata=train,"class")
+tab <- table(train$AOI,train$AOIpred)
+round((sum(diag(tab))/sum(tab))*100,2)
+```
+73% accuracy on train
+
+```{r}
+test$AOIpred <- predict(multi,newdata=test,"class")
+tab <- table(test$AOI, test$AOIpred)
+round((sum(diag(tab))/sum(tab))*100,2)
+tab
+```
+73% accuracy, hvor den classificere alle andre AOI's forkert bortset fra torsoTail...
+
+# tilbage til brms
+```{r}
+install.packages("brms", dependencies = TRUE)
+install.packages("cmdstanr")
+pacman::p_load(tidyverse)
+install.packages("rstan")
+library(brms)
+# Assuming your data is in a data frame called 'gaze_data'
+first$AOI <- as.integer(first$AOI)
+first$Task <- as.integer(first$Task)
+# Fit Bayesian ANOVA model
+model.matrix(~AOI*Task, data = second)
+model <- brm(AOI ~0+ Task, data = second,family=categorical())
+intercept <- brm(AOI~Task,data=second,family=categorical())
+second$AOI <- relevel(second$AOI,ref="2")
+model2 <- brm(AOI ~0+ Task, data = second,family=categorical())
+intercept2 <- brm(AOI~Task,data=second,family=categorical())
+inter2 <- brm(AOI~0+Task+AOI+Task*AOI,data=second,family = categorical(),chains = 4, cores = 2, iter = 4000,warmup = 2000)
+
+
+# Display summary of the Bayesian ANOVA model
+try <- summary(bayesian_anova_model)
+try1 <- summary(inter)
+
+# Perform post-hoc analysis using posterior_samples
+posterior_samples <- #posterior_Samples deprecated
+
+# Visualize the results (posterior distribution)
+plot(as_draws_df(bayesian_anova_model))
+
+# Display credible intervals for post-hoc comparisons
+summary(as_draws_rvars(bayesian_anova_model))
+```
+
+#making a plot for it
+```{r}
+coef_data <- data.frame(
+  Effect = c("Legs_Movement", "Legs_Recog", "Legs_Aest", "Torso_Movement", "Torso_Recog", "Torso_Aest"),
+  Estimate = c(try[["fixed"]][1][[1]]),
+  Lower_CI = c(try[["fixed"]][3][[1]]),
+  Upper_CI = c(try[["fixed"]][4][[1]]),
+  Task = c("Movement", "Species", "Aesthetic", "Movement", "Species", "Aesthetic"),
+  AOI = c("Legs", "Legs", "Legs", "TorsoTail", "TorsoTail", "TorsoTail")         
+)
+
+Collected <- subset(first,select=c(AOI,Task)) %>% 
+  mutate(Hit="First")
+se <- subset(second,select=c(AOI,Task)) %>% 
+  mutate(Hit="second")
+Collected <- rbind(Collected,se)
+
+se <- first %>% 
+  mutate(total=n()) %>% 
+  group_by(Task,AOI) %>% 
+  mutate(count=n()) %>% 
+  mutate(per=count/total) %>% 
+  distinct(AOI, .keep_all = TRUE) %>% 
+  ungroup()
+
+install.packages('extrafont')
+library(extrafont)
+font_import(pattern="Cambria")
+loadfonts(device = "win")
+
+AOI_colors <- c( 
+                      "TorsoTail"= "#6E0955",
+                      "HeadExtension"= "#009BBB",
+                      "Legs"= "#7E5738"
+                      )
+se$AOI <- gsub("2", "Legs", se$AOI)
+se$AOI <- gsub("1", "HeadExtension", se$AOI)
+se$AOI <- gsub("3", "TorsoTail", se$AOI)
+se$Task <- gsub("1", "Movement", se$Task)
+se$Task <- gsub("2", "Species", se$Task)
+se$Task <- gsub("3", "Aesthetic", se$Task)
+
+ggplot(se, aes(x=, y=per, fill=AOI)) +
+  geom_boxplot() +
+      scale_fill_manual(values = AOI_colors) +
+  facet_wrap(~Task)+
+  labs(title="AOI distribution",fill="AOI",x="Task",y="Percentage")+
+    theme(text=element_text(family="Cambria"))
+ggsave("AOI_first_hit_distribution.png")
+
+#boxplot
+se1 <- second %>%
+  group_by(Participant,Task) %>% 
+  mutate(total=n()) %>% 
+  group_by(Participant,Task,AOI) %>% 
+  mutate(count=n()) %>% 
+  mutate(per=count/total) %>% 
+  distinct(AOI, .keep_all = TRUE) %>% 
+  ungroup()
+
+se1$AOI <- gsub("2", "Legs", se1$AOI)
+se1$AOI <- gsub("1", "HeadExtension", se1$AOI)
+se1$AOI <- gsub("3", "TorsoTail", se1$AOI)
+se1$Task <- gsub("1", "Movement", se1$Task)
+se1$Task <- gsub("2", "Species", se1$Task)
+se1$Task <- gsub("3", "Aesthetic", se1$Task)
+
+ggplot(se1) +
+  aes(y="",x = Task, fill = AOI) + theme_minimal() +
+
+  scale_fill_manual(values = AOI_colors) +
+  geom_boxplot() +
+  labs(title="AOI distribution",fill="AOI",x="Task",y="Proportion")+
+  facet_wrap(vars(Task))+
+  theme(text=element_text(family="Cambria"),axis.ticks.x=element_blank(),axis.text.x=element_blank())
+ggsave("AOI_first_hit_boxplot.png",width = 7, height = 5, units = "in")
+```
+
+
+# til t.test
+```{r}
+options(mc.cores = parallel::detectCores())
+
+# Step 4: Build the regression model
+rstanarm::stan_glm(AOI ~ Task, data = first, family = categorical())
+```
+
+# naive bayes
+```{r}
+install.packages("naivebayes")
+library(naivebayes)
+
+mb <- multinomial_naive_bayes(x=second$AOI,y=second$Task,laplace = laplace)
+```
+```{r}
+set.seed(121)
+ind <- sample(2,nrow(second),replace=T,prob=c(0.8,0.2))
+train <- second[ind==1,]
+test <- second[ind==2,]
+
+model <- naive_bayes(AOI ~ Task*AOI, data=train, usekernel=T)
+plot(model)
+```
+```{r}
+p <- predict(model,train,type='prob')
+head(cbind(p,train))
+summary(model)
+```
+```{r}
+p1 <- predict(model,train)
+tab1 <- table(p1,train$AOI)
+tab1
+sum(diag(tab1))/sum(tab1)
+```
+```{r}
+p2 <- predict(model,test)
+tab2 <- table(p2,test$AOI)
+tab2
+sum(diag(tab2))/sum(tab2)
+```
+
+
+
+#classifier
+```{r}
+# Create and train the Naive Bayes classifier
+first$Task <- as.factor(first$Task)
+first$AOI <- as.factor(first$AOI)
+
+second$AOI <- gsub("2", "Legs", second$AOI)
+second$AOI <- gsub("1", "HeadExtension", second$AOI)
+second$AOI <- gsub("3", "TorsoTail", second$AOI)
+second$Task <- gsub("1", "Movement", second$Task)
+second$Task <- gsub("2", "Species", second$Task)
+second$Task <- gsub("3", "Aesthetic", second$Task)
+
+nb_classifier <- naive_bayes(AOI ~ Task, data = second)
+nb <- naive_bayes(AOI ~ Task*AOI, data = second)
+print(nb)
+print(nb_classifier)
+```
+
+
+```{r}
+# Display the summary of the model
+print(nb_classifier)
+```
+
+
+```{r}
+# Make predictions on new data (for example, using the same dataset for demonstration)
+predictions <- predict(nb, newdata = second,type="class")
+tab <- table(predictions,second$AOI)
+tab
+round((sum(diag(tab))/sum(tab))*100,2)
+
+```
+```{r}
+prp <- predict(nb_classifier, newdata = second,type="prob")
+table(prp,second$AOI)
+```
+
+
+```{r}
+# Display the confusion matrix
+table(predictions, first$AOI)
+coef(nb)
+```
+
+
+# ONCE MORE
+```{r}
+library(brms)
+df <- read.csv("C:/Users/sarak/OneDrive - Aarhus universitet/26102021/Cog sci/5_semester/Bachelor/bachelor - github/analysis/fixations_MAGNIFISO.csv") #starting over
+d <- subset(df,select=c("ID","Task","Trial_index","Stimuli","AOI_hit","Fixation.Duration"))
+
+second <- d %>% 
+  group_by(ID,Task,Trial_index) %>% 
+  slice(2)
+
+second <- second %>% 
+  rename(AOI=AOI_hit)
+
+second$AOI <- gsub("\\+.*","",second$AOI)
+second$Task <- gsub("style", "Aesthetic", second$Task)
+second$Task <- gsub("act", "Movement", second$Task)
+second$Task <- gsub("recog", "Species", second$Task)
+
+
+second$first_visit <- 1
+legs <- second
+legs$first_visit <- 0
+for (line in seq(1,nrow(legs))){
+  if (legs$AOI[line]=="Head"){
+    legs$AOI[line] <- "Legs"
+  }else if (legs$AOI[line]=="Legs"){
+    legs$AOI[line] <- "Torso"
+  }else if (legs$AOI[line]=="Torso"){
+    legs$AOI[line] <- "Head"
+  }
+}
+head <- second
+head$first_visit <- 0
+for (line in seq(1,nrow(head))){
+  if (head$AOI[line]=="Head"){
+    head$AOI[line] <- "Torso"
+  }else if (head$AOI[line]=="Legs"){
+    head$AOI[line] <- "Head"
+  }else if (head$AOI[line]=="Torso"){
+    head$AOI[line] <- "Legs"
+  }
+}
+
+s <- rbind(head,legs)
+se <- rbind(second,s)
+#the real stuff
+se$Task <- as.factor(se$Task)
+se$AOI <- as.factor(se$AOI)
+
+formula <- first_visit ~ 0 + Task +Task:AOI
+
+#3 has the head as reference, 4 legs, 5 torso
+se$AOI <- relevel(se$AOI,ref="Head")
+
+#find the priors
+get_prior(formula = formula,data=se,family=bernoulli(link="logit"))
+#set uninformative priors
+ber_prior3 <- c(prior(normal(0,1),class="b",coef="TaskAesthetic"),
+               prior(normal(0,1),class="b",coef="TaskMovement"),
+               prior(normal(0,1),class="b",coef="TaskSpecies"),
+               prior(normal(0,1),class="b",coef="TaskSpecies:AOILegs"),
+               prior(normal(0,1),class="b",coef="TaskAesthetic:AOILegs"),
+              prior(normal(0,1),class="b",coef="TaskSpecies:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskAesthetic:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOILegs")
+               )
+
+#3 has the head as reference, 4 legs, 5 torso
+se$AOI <- relevel(se$AOI,ref="Legs")
+
+ber_prior4 <- c(prior(normal(0,1),class="b",coef="TaskMovement"),
+               prior(normal(0,1),class="b",coef="TaskSpecies"),
+               prior(normal(0,1),class="b",coef="TaskAesthetic"),
+               prior(normal(0,1),class="b",coef="TaskSpecies:AOIHead"),
+               prior(normal(0,1),class="b",coef="TaskAesthetic:AOIHead"),
+              prior(normal(0,1),class="b",coef="TaskSpecies:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskAesthetic:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOITorso"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOIHead")
+               )
+#3 has the head as reference, 4 legs, 5 torso
+se$AOI <- relevel(se$AOI,ref="Torso")
+
+ber_prior5 <- c(prior(normal(0,1),class="b",coef="TaskMovement"),
+               prior(normal(0,1),class="b",coef="TaskSpecies"),
+               prior(normal(0,1),class="b",coef="TaskAesthetic"),
+               prior(normal(0,1),class="b",coef="TaskSpecies:AOIHead"),
+               prior(normal(0,1),class="b",coef="TaskAesthetic:AOIHead"),
+              prior(normal(0,1),class="b",coef="TaskSpecies:AOILegs"),
+              prior(normal(0,1),class="b",coef="TaskAesthetic:AOILegs"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOILegs"),
+              prior(normal(0,1),class="b",coef="TaskMovement:AOIHead")
+               )
+#fit priors
+head <- brm(formula = formula,  
+                   data=se, 
+                   prior = ber_prior3,
+                   family = bernoulli(link = "logit"),
+                   warmup = 500, 
+                   iter = 2000, 
+                   chains = 2, 
+                   inits= "0",
+           file = "prior_bullshit_3",
+                   cores=2,
+                   seed = 123)
+#check 'em
+pp_check(AAH,ndraws=100) #looks good
+
+#fit posterior model
+torso <- brm(formula = formula,  
+                   data=se, 
+                   prior = ber_prior5,
+                  sample_prior = T, #THIS IS WHAT MAKES IT POSTERIOR
+                   family = bernoulli(link = "logit"),
+                   warmup = 2000, 
+                   iter = 4000, 
+                   chains = 2, 
+                   inits= "0", 
+          file = "posterior_bull_5",
+                   cores=2,
+                   seed = 123)
+#check tha'
+pp_check(AH,ndraws=100) #looks good
+
+#get estimates
+summary(AH)
+
+
+#do hypothesis testing
+#head
+hypothesis(head,"TaskSpecies > (TaskMovement+TaskAesthetic)/2")
+hypothesis(head,"TaskMovement:AOILegs > TaskMovement:AOITorso")
+hypothesis(head,"TaskAesthetic:AOITorso = TaskAesthetic:AOILegs")
+#legs
+hypothesis(legs,"TaskMovement > (TaskSpecies+TaskAesthetic)/2")
+hypothesis(legs,"TaskSpecies:AOIHead > TaskSpecies:AOITorso")
+hypothesis(legs,"TaskAesthetic:AOIHead = TaskAesthetic:AOITorso")
+#torso
+hypothesis(torso,"TaskMovement:AOILegs > TaskMovement:AOIHead")
+hypothesis(torso,"TaskSpecies:AOIHead > TaskSpecies:AOILegs")
+hypothesis(torso,"TaskAesthetic:AOILegs = TaskAesthetic:AOIHead")
+
+```
+
+# boxplot
+```{r}
+se1 <- second %>%
+  group_by(Trial_index,Task,AOI) %>% 
+  mutate(count=n()) %>% 
+  distinct(AOI, .keep_all = TRUE) %>% 
+  ungroup()
+se1$AOI <- gsub("TorsoTail", "Torso", se1$AOI)
+se1$AOI <- gsub("HeadExtensions", "Head", se1$AOI)
+se1$Task <- gsub("style", "Aesthetic", se1$Task)
+se1$Task <- gsub("act", "Movement", se1$Task)
+se1$Task <- gsub("recog", "Species", se1$Task)
+
+p_fix <- ggplot(se1, aes(x = Task, y = count, fill = AOI)) +
+  geom_boxplot() +
+  ggtitle("First hit") +
+  xlab("Task") +
+  ylab("Proportion") +
+  theme_bw() + 
+  theme(text = element_text(family = "Cambria")) +
+  scale_fill_manual(values=c(Head = "#009BBB", Legs = "#7E5738", Torso = "#6E0955")) +
+  theme(text = element_text(size = 16), axis.text=element_text(size=12),
+        plot.title=element_text(size=20,face="bold"))
+p_fix <- p_fix + stat_summary(fun.y=mean,  geom="point", size=2,color="white", position = position_dodge(width = 0.75))
+p_fix
+
+ggsave("first_box.jpg", p_fix,  width = 10, height = 6, dpi = 300)
+```
+
