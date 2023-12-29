@@ -1,7 +1,7 @@
 # Bachelor repository for ***Eyes on the Past***
 *by [Frederieke N. Wullf](https://github.com/FrederiekeW) & [Sara K. Kristensen](https://github.com/MajestiCupcake)*
 
-Citation:
+**Citation**:
 Author: Frederieke Nicola Wullf and Sara Kjær Kristensen
 
 
@@ -12,6 +12,8 @@ Year: in preparation *or* 4. januar 2024
 
 
 Place: Aarhus University
+
+
 
 
 in here you will find:
@@ -30,6 +32,8 @@ Additionally analysis scripts for R:
 
 
 Let is serve as a demo for proportion of fixation and dwell time
+
+
 
 
 If you should want to see our data, feel free to contact [Sara](mailto:sarakk31@live.com)
